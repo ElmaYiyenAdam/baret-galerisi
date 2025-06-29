@@ -11,7 +11,7 @@ import {
 } from 'firebase/database';
 
 const ADMIN_EMAIL = "saygincamsoy2005@hotmail.com";
-const IMGBB_API_KEY = "SENIN_IMGBB_API_KEY"; // imgbb API key buraya
+const IMGBB_API_KEY = "6fcfb13dfb45994a4cfadbed6e5f7c23"; // imgbb API key buraya
 
 export default function DesignGallery() {
   const { user } = useAuth();
@@ -51,6 +51,13 @@ export default function DesignGallery() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Sadece görsel dosyalarına izin ver
+    if (!file.type.startsWith('image/')) {
+      alert('Lütfen sadece fotoğraf dosyası yükleyin.');
+      return;
+    }
+
     setIsUploading(true);
 
     const formData = new FormData();
@@ -125,6 +132,7 @@ export default function DesignGallery() {
             />
             <input
               type="file"
+              accept="image/*"
               className="border p-2 rounded w-full"
               onChange={handleFileUpload}
             />
