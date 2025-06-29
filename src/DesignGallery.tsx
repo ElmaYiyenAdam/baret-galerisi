@@ -2,74 +2,51 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { db } from './firebase';
 import {
-  collection,
-  addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  Timestamp,
-  where,
-  getDocs,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from 'firebase/firestore';
+  ref,
+  set,
+  onValue,
+  push,
+  get,
+  remove,
+} from 'firebase/database';
 
 const ADMIN_EMAIL = "saygincamsoy2005@hotmail.com";
-const IMGBB_API_KEY = "SENIN_IMGBB_API_KEY"; // Burayı kendi API key'inle değiştir
-
-type Design = {
-  id: string;
-  title: string;
-  imageUrl: string;
-  rating: number;
-  ownerId: string;
-  ownerName: string;
-  ownerAvatar: string | null;
-  createdAt: Timestamp;
-};
-
-type Vote = 'like' | 'dislike';
+const IMGBB_API_KEY = "SENIN_IMGBB_API_KEY"; // imgbb API key buraya
 
 export default function DesignGallery() {
-  const { user, login, logout } = useAuth();
-  const [designs, setDesigns] = useState<Design[]>([]);
+  const { user } = useAuth();
+  const [designs, setDesigns] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [userVotes, setUserVotes] = useState<Record<string, Vote>>({});
+  const [userVotes, setUserVotes] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-
-  const designsRef = collection(db, 'designs');
-  const votesRef = collection(db, 'votes');
 
   const isAdmin = user?.email === ADMIN_EMAIL;
 
   useEffect(() => {
-    const q = query(designsRef, orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: Design[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Design[];
-      setDesigns(list);
+    const designsRef = ref(db, 'designs');
+    onValue(designsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const entries = Object.entries(data).map(([id, value]: any) => ({ id, ...value }));
+        setDesigns(entries.sort((a, b) => b.createdAt - a.createdAt));
+      }
     });
-    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    const fetchVotes = async () => {
-      const q = query(votesRef, where('userId', '==', user.uid));
-      const snapshot = await getDocs(q);
-      const votes: Record<string, Vote> = {};
-      snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        votes[data.designId] = data.vote;
-      });
-      setUserVotes(votes);
-    };
-    fetchVotes();
+    const votesRef = ref(db, 'votes');
+    onValue(votesRef, (snapshot) => {
+      const data = snapshot.val();
+      const votedIds = Object.values(data || {}).filter((vote: any) => vote.userId === user.uid).map((v: any) => v.designId);
+      setUserVotes(votedIds);
+    });
   }, [user]);
+
+  const hasVoted = (designId: string): boolean => {
+    return userVotes.includes(designId);
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -91,92 +68,54 @@ export default function DesignGallery() {
 
   const handleAddDesign = async () => {
     if (!title || !imageUrl || !user) return;
-
-    const newDesign = {
+    const newRef = push(ref(db, 'designs'));
+    await set(newRef, {
       title,
       imageUrl,
       rating: 0,
       ownerId: user.uid,
       ownerName: user.displayName || 'Anonim',
       ownerAvatar: user.photoURL || null,
-      createdAt: Timestamp.now(),
-    };
-
-    await addDoc(designsRef, newDesign);
+      createdAt: Date.now(),
+    });
     setTitle('');
     setImageUrl('');
   };
 
-  const handleVote = async (id: string, vote: Vote) => {
-    if (!user) return;
+  const handleVote = async (id: string) => {
+    if (!user || hasVoted(id)) return;
 
-    const existingVote = userVotes[id];
-    const newVotes = { ...userVotes };
-
-    if (existingVote === vote) return; // aynı oyu tekrar verme
-
-    const designDoc = doc(db, 'designs', id);
-    const design = designs.find((d) => d.id === id);
-    if (!design) return;
-
-    if (existingVote) {
-      // eski oyu sil
-      const q = query(votesRef, where('userId', '==', user.uid), where('designId', '==', id));
-      const snapshot = await getDocs(q);
-      snapshot.forEach(async (docu) => await deleteDoc(doc(db, 'votes', docu.id)));
-    }
-
-    // yeni oyu kaydet
-    await addDoc(votesRef, {
+    await set(ref(db, `votes/${user.uid}_${id}`), {
       userId: user.uid,
       designId: id,
-      vote,
-      votedAt: Timestamp.now(),
+      votedAt: Date.now(),
     });
 
-    let newRating = design.rating;
-    if (!existingVote) newRating += vote === 'like' ? 1 : -1;
-    else newRating += vote === 'like' ? 2 : -2;
+    const designRef = ref(db, `designs/${id}`);
+    const snapshot = await get(designRef);
+    const current = snapshot.val();
+    const currentRating = current?.rating || 0;
 
-    await updateDoc(designDoc, { rating: newRating });
-    newVotes[id] = vote;
-    setUserVotes(newVotes);
+    await set(designRef, {
+      ...current,
+      rating: currentRating + 1,
+    });
+
+    setUserVotes((prev) => [...prev, id]);
   };
 
   const handleDelete = async (id: string) => {
     if (!isAdmin) return;
-    await deleteDoc(doc(db, 'designs', id));
+    await remove(ref(db, `designs/${id}`));
   };
 
   const top3 = [...designs].sort((a, b) => b.rating - a.rating).slice(0, 3);
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex justify-end items-center gap-4 my-4">
+      <div className="bg-white p-4 rounded shadow mb-8">
+        <h2 className="text-xl font-semibold mb-2">Yeni Tasarım Ekle</h2>
         {user ? (
-          <div className="flex items-center gap-2">
-            <img src={user.photoURL || ''} alt="avatar" className="w-8 h-8 rounded-full" />
-            <span className="text-sm text-gray-600">{user.displayName}</span>
-            <button
-              onClick={logout}
-              className="text-sm text-red-500 underline"
-            >
-              Çıkış Yap
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={login}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
-          >
-            Google ile Giriş Yap
-          </button>
-        )}
-      </div>
-
-      {user ? (
-        <div className="bg-white p-4 rounded shadow mb-8">
-          <h2 className="text-xl font-semibold mb-2">Yeni Tasarım Ekle</h2>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               className="border p-2 rounded w-full"
@@ -197,57 +136,91 @@ export default function DesignGallery() {
               {isUploading ? "Yükleniyor..." : "Yükle"}
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="text-center text-gray-500 italic mb-8">
-          Tasarım yüklemek için giriş yapmalısınız.
+        ) : (
+          <div className="text-center text-gray-500 italic">
+            Tasarım yüklemek için giriş yapmalısınız.
+          </div>
+        )}
+      </div>
+
+      {top3.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-3">🏆 En İyi 3 Tasarım</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {top3.map((design) => (
+              <div key={design.id} className="bg-white rounded shadow p-2 relative">
+                <img
+                  src={design.imageUrl}
+                  alt={design.title}
+                  className="rounded mb-2 h-40 w-full object-cover"
+                />
+                <div className="font-semibold">{design.title}</div>
+                <div className="text-sm">⭐ {design.rating}</div>
+                {design.ownerAvatar && (
+                  <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                    <img src={design.ownerAvatar} className="w-5 h-5 rounded-full" />
+                    <span>{design.ownerName}</span>
+                  </div>
+                )}
+                {isAdmin && (
+                  <button
+                    onClick={() => handleDelete(design.id)}
+                    className="absolute top-2 right-2 text-xs text-red-500 hover:underline"
+                  >
+                    Sil
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      <h2 className="text-2xl font-bold mb-4">En İyi 3 Baret Tasarımı</h2>
-      <div className="grid sm:grid-cols-3 gap-4 mb-8">
-        {top3.map((design) => (
-          <div key={design.id} className="border rounded p-2">
-            <img src={design.imageUrl} alt={design.title} className="w-full h-40 object-cover rounded" />
-            <h3 className="font-semibold mt-2">{design.title}</h3>
-            <p className="text-sm text-gray-500">Oy: {design.rating}</p>
-          </div>
-        ))}
-      </div>
-
-      <h2 className="text-xl font-bold mb-4">Tüm Tasarımlar</h2>
-      <div className="grid sm:grid-cols-3 gap-4">
-        {designs.map((design) => (
-          <div key={design.id} className="border rounded p-2 relative">
-            {isAdmin && (
-              <button
-                className="absolute top-1 right-1 text-xs text-red-600"
-                onClick={() => handleDelete(design.id)}
-              >
-                Sil
-              </button>
-            )}
-            <img src={design.imageUrl} alt={design.title} className="w-full h-40 object-cover rounded" />
-            <h3 className="font-semibold mt-2">{design.title}</h3>
-            <p className="text-sm text-gray-500">Oy: {design.rating}</p>
-            {user && (
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={() => handleVote(design.id, 'like')}
-                  className={`px-2 py-1 rounded text-sm ${userVotes[design.id] === 'like' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
-                >
-                  👍 Like
-                </button>
-                <button
-                  onClick={() => handleVote(design.id, 'dislike')}
-                  className={`px-2 py-1 rounded text-sm ${userVotes[design.id] === 'dislike' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
-                >
-                  👎 Dislike
-                </button>
+      <div>
+        <h2 className="text-xl font-bold mb-3">🖼️ Tüm Tasarımlar</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {designs.map((design) => (
+            <div key={design.id} className="bg-white rounded shadow p-2 relative">
+              <img
+                src={design.imageUrl}
+                alt={design.title}
+                className="rounded mb-2 h-40 w-full object-cover"
+              />
+              <div className="font-semibold">{design.title}</div>
+              <div className="flex justify-between items-center mt-2">
+                <div className="text-sm">⭐ {design.rating}</div>
+                {user ? (
+                  hasVoted(design.id) ? (
+                    <span className="text-sm text-gray-400">Oy kullandın</span>
+                  ) : (
+                    <button
+                      onClick={() => handleVote(design.id)}
+                      className="text-blue-500 text-sm hover:underline"
+                    >
+                      Oyla
+                    </button>
+                  )
+                ) : (
+                  <span className="text-sm text-gray-400">Giriş yapmalısın</span>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+              {design.ownerAvatar && (
+                <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                  <img src={design.ownerAvatar} className="w-5 h-5 rounded-full" />
+                  <span>{design.ownerName}</span>
+                </div>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={() => handleDelete(design.id)}
+                  className="absolute top-2 right-2 text-xs text-red-500 hover:underline"
+                >
+                  Sil
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
