@@ -8,6 +8,7 @@ import {
   push,
   get,
   remove,
+  update,
 } from 'firebase/database';
 
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase());
@@ -17,7 +18,7 @@ export default function DesignGallery() {
   const [designs, setDesigns] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [userVotes, setUserVotes] = useState<Record<string, 'like' | 'dislike'>>({});
+  const [likedDesigns, setLikedDesigns] = useState<Set<string>>(new Set());
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -36,16 +37,16 @@ export default function DesignGallery() {
 
   useEffect(() => {
     if (!user) return;
-    const votesRef = ref(db, 'votes');
-    onValue(votesRef, (snapshot) => {
+    const likesRef = ref(db, 'likes');
+    onValue(likesRef, (snapshot) => {
       const data = snapshot.val() || {};
-      const votes: Record<string, 'like' | 'dislike'> = {};
-      Object.entries<any>(data).forEach(([key, value]) => {
-        if (value.userId === user.uid) {
-          votes[value.designId] = value.vote;
+      const liked = new Set<string>();
+      Object.values<any>(data).forEach((like: any) => {
+        if (like.userId === user.uid) {
+          liked.add(like.designId);
         }
       });
-      setUserVotes(votes);
+      setLikedDesigns(liked);
     });
   }, [user]);
 
@@ -75,7 +76,6 @@ export default function DesignGallery() {
       title,
       imageUrl,
       likes: 0,
-      dislikes: 0,
       ownerId: user.uid,
       ownerName: user.displayName || 'Anonim',
       ownerAvatar: user.photoURL || null,
@@ -86,37 +86,28 @@ export default function DesignGallery() {
     setImageUrl('');
   };
 
-  const handleVote = async (id: string, voteType: 'like' | 'dislike') => {
+  const toggleLike = async (id: string) => {
     if (!user) return;
-    const voteKey = `${user.uid}_${id}`;
-    const previousVote = userVotes[id];
-
+    const likeKey = `${user.uid}_${id}`;
     const designRef = ref(db, `designs/${id}`);
     const snapshot = await get(designRef);
     const current = snapshot.val();
     if (!current) return;
 
-    let likes = current.likes || 0;
-    let dislikes = current.dislikes || 0;
+    const isLiked = likedDesigns.has(id);
+    const newLikes = (current.likes || 0) + (isLiked ? -1 : 1);
 
-    if (previousVote === voteType) return;
+    await update(designRef, { likes: newLikes });
 
-    if (previousVote === 'like') likes--;
-    if (previousVote === 'dislike') dislikes--;
-
-    if (voteType === 'like') likes++;
-    if (voteType === 'dislike') dislikes++;
-
-    await set(designRef, { ...current, likes, dislikes });
-
-    await set(ref(db, `votes/${voteKey}`), {
-      userId: user.uid,
-      designId: id,
-      vote: voteType,
-      votedAt: Date.now(),
-    });
-
-    setUserVotes((prev) => ({ ...prev, [id]: voteType }));
+    if (isLiked) {
+      await remove(ref(db, `likes/${likeKey}`));
+    } else {
+      await set(ref(db, `likes/${likeKey}`), {
+        userId: user.uid,
+        designId: id,
+        likedAt: Date.now(),
+      });
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -173,20 +164,12 @@ export default function DesignGallery() {
               <div className="font-semibold">{design.title}</div>
               <div className="flex justify-between items-center mt-2">
                 {user ? (
-                  <div className="flex gap-2">
-                    <button
-                      className={`text-sm px-2 py-1 rounded ${userVotes[design.id] === 'like' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
-                      onClick={() => handleVote(design.id, 'like')}
-                    >
-                      👍 {isAdmin ? design.likes || 0 : ''}
-                    </button>
-                    <button
-                      className={`text-sm px-2 py-1 rounded ${userVotes[design.id] === 'dislike' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
-                      onClick={() => handleVote(design.id, 'dislike')}
-                    >
-                      👎 {isAdmin ? design.dislikes || 0 : ''}
-                    </button>
-                  </div>
+                  <button
+                    className={`text-sm px-2 py-1 rounded ${likedDesigns.has(design.id) ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                    onClick={() => toggleLike(design.id)}
+                  >
+                    ❤ {isAdmin ? design.likes || 0 : ''}
+                  </button>
                 ) : (
                   <span className="text-sm text-gray-400">Giriş yapmalısın</span>
                 )}
