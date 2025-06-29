@@ -10,9 +10,9 @@ import {
   remove,
 } from 'firebase/database';
 
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
-const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
-
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || "")
+  .split(",")
+  .map(email => email.trim().toLowerCase());
 
 export default function DesignGallery() {
   const { user } = useAuth();
@@ -22,7 +22,7 @@ export default function DesignGallery() {
   const [userVotes, setUserVotes] = useState<Record<string, 'like' | 'dislike'>>({});
   const [isUploading, setIsUploading] = useState(false);
 
-  const isAdmin = user?.email === ADMIN_EMAIL;
+  const isAdmin = ADMIN_EMAILS.includes((user?.email || "").toLowerCase());
 
   useEffect(() => {
     const designsRef = ref(db, 'designs');
@@ -60,7 +60,7 @@ export default function DesignGallery() {
     setIsUploading(true);
     const formData = new FormData();
     formData.append("image", file);
-    const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+    const res = await fetch(`https://api.imgbb.com/1/upload?key=${import.meta.env.VITE_IMGBB_API_KEY}`, {
       method: "POST",
       body: formData,
     });
