@@ -10,8 +10,9 @@ import {
   remove,
 } from 'firebase/database';
 
-const ADMIN_EMAIL = "saygincamsoy2005@hotmail.com";
-const IMGBB_API_KEY = "SENIN_IMGBB_API_KEY"; // imgbb API key
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
+const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
+
 
 export default function DesignGallery() {
   const { user } = useAuth();
