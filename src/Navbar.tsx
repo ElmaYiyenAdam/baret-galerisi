@@ -1,31 +1,44 @@
-// src/Navbar.tsx
-import React from "react";
-import { useAuth } from "./AuthContext";
+import React from 'react';
+import { useAuth } from './AuthContext';
 
 export default function Navbar() {
   const { user, login, logout } = useAuth();
 
   return (
-    <nav className="bg-white shadow p-4 flex justify-between items-center mb-6">
-      <h1 className="text-xl font-bold text-blue-600">🪖 Baret Tasarım Galerisi</h1>
-      <div>
+    <nav className="bg-white shadow px-6 py-4 flex items-center justify-between">
+      {/* Sol köşede YTU logosu */}
+      <div className="w-24">
+        <img
+          src="/ytu-logo.png"
+          alt="YTU Logo"
+          className="h-20 w-auto object-contain"
+        />
+      </div>
+
+      {/* Ortada Yapı Kulübü logosu */}
+      <div className="flex-1 flex justify-center">
+        <img
+          src="/3.png"
+          alt="Yapı Kulübü"
+          className="h-16 w-auto object-contain"
+        />
+      </div>
+
+      {/* Sağda giriş/çıkış butonu */}
+      <div className="w-24 text-right">
         {user ? (
-          <div className="flex items-center gap-3">
-            <img src={user.photoURL || ''} alt="avatar" className="w-8 h-8 rounded-full" />
-            <span className="text-sm">{user.displayName}</span>
-            <button
-              onClick={logout}
-              className="text-sm text-red-500 underline"
-            >
-              Çıkış Yap
-            </button>
-          </div>
+          <button
+            onClick={logout}
+            className="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded"
+          >
+            Çıkış Yap
+          </button>
         ) : (
           <button
             onClick={login}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
+            className="text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
           >
-            Google ile Giriş Yap
+            Giriş Yap
           </button>
         )}
       </div>
