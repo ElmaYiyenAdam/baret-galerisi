@@ -11,14 +11,14 @@ import {
 } from 'firebase/database';
 
 const ADMIN_EMAIL = "saygincamsoy2005@hotmail.com";
-const IMGBB_API_KEY = "6fcfb13dfb45994a4cfadbed6e5f7c23"; // imgbb API key buraya
+const IMGBB_API_KEY = "6fcfb13dfb45994a4cfadbed6e5f7c23"; // imgbb API key
 
 export default function DesignGallery() {
   const { user } = useAuth();
   const [designs, setDesigns] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [userVotes, setUserVotes] = useState<string[]>([]);
+  const [userVotes, setUserVotes] = useState<Record<string, 'like' | 'dislike'>>({});
   const [isUploading, setIsUploading] = useState(false);
 
   const isAdmin = user?.email === ADMIN_EMAIL;
@@ -38,36 +38,31 @@ export default function DesignGallery() {
     if (!user) return;
     const votesRef = ref(db, 'votes');
     onValue(votesRef, (snapshot) => {
-      const data = snapshot.val();
-      const votedIds = Object.values(data || {}).filter((vote: any) => vote.userId === user.uid).map((v: any) => v.designId);
-      setUserVotes(votedIds);
+      const data = snapshot.val() || {};
+      const votes: Record<string, 'like' | 'dislike'> = {};
+      Object.entries<any>(data).forEach(([key, value]) => {
+        if (value.userId === user.uid) {
+          votes[value.designId] = value.vote;
+        }
+      });
+      setUserVotes(votes);
     });
   }, [user]);
-
-  const hasVoted = (designId: string): boolean => {
-    return userVotes.includes(designId);
-  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Sadece görsel dosyalarına izin ver
     if (!file.type.startsWith('image/')) {
       alert('Lütfen sadece fotoğraf dosyası yükleyin.');
       return;
     }
-
     setIsUploading(true);
-
     const formData = new FormData();
     formData.append("image", file);
-
     const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
       method: "POST",
       body: formData,
     });
-
     const data = await res.json();
     setImageUrl(data.data.url);
     setIsUploading(false);
@@ -79,7 +74,8 @@ export default function DesignGallery() {
     await set(newRef, {
       title,
       imageUrl,
-      rating: 0,
+      likes: 0,
+      dislikes: 0,
       ownerId: user.uid,
       ownerName: user.displayName || 'Anonim',
       ownerAvatar: user.photoURL || null,
@@ -89,26 +85,37 @@ export default function DesignGallery() {
     setImageUrl('');
   };
 
-  const handleVote = async (id: string) => {
-    if (!user || hasVoted(id)) return;
-
-    await set(ref(db, `votes/${user.uid}_${id}`), {
-      userId: user.uid,
-      designId: id,
-      votedAt: Date.now(),
-    });
+  const handleVote = async (id: string, voteType: 'like' | 'dislike') => {
+    if (!user) return;
+    const voteKey = `${user.uid}_${id}`;
+    const previousVote = userVotes[id];
 
     const designRef = ref(db, `designs/${id}`);
     const snapshot = await get(designRef);
     const current = snapshot.val();
-    const currentRating = current?.rating || 0;
+    if (!current) return;
 
-    await set(designRef, {
-      ...current,
-      rating: currentRating + 1,
+    let likes = current.likes || 0;
+    let dislikes = current.dislikes || 0;
+
+    if (previousVote === voteType) return;
+
+    if (previousVote === 'like') likes--;
+    if (previousVote === 'dislike') dislikes--;
+
+    if (voteType === 'like') likes++;
+    if (voteType === 'dislike') dislikes++;
+
+    await set(designRef, { ...current, likes, dislikes });
+
+    await set(ref(db, `votes/${voteKey}`), {
+      userId: user.uid,
+      designId: id,
+      vote: voteType,
+      votedAt: Date.now(),
     });
 
-    setUserVotes((prev) => [...prev, id]);
+    setUserVotes((prev) => ({ ...prev, [id]: voteType }));
   };
 
   const handleDelete = async (id: string) => {
@@ -116,7 +123,7 @@ export default function DesignGallery() {
     await remove(ref(db, `designs/${id}`));
   };
 
-  const top3 = [...designs].sort((a, b) => b.rating - a.rating).slice(0, 3);
+  const top3 = [...designs].sort((a, b) => (b.likes || 0) - (a.likes || 0)).slice(0, 3);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -151,39 +158,6 @@ export default function DesignGallery() {
         )}
       </div>
 
-      {top3.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-xl font-bold mb-3">🏆 En İyi 3 Tasarım</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {top3.map((design) => (
-              <div key={design.id} className="bg-white rounded shadow p-2 relative">
-                <img
-                  src={design.imageUrl}
-                  alt={design.title}
-                  className="rounded mb-2 h-40 w-full object-cover"
-                />
-                <div className="font-semibold">{design.title}</div>
-                <div className="text-sm">⭐ {design.rating}</div>
-                {design.ownerAvatar && (
-                  <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                    <img src={design.ownerAvatar} className="w-5 h-5 rounded-full" />
-                    <span>{design.ownerName}</span>
-                  </div>
-                )}
-                {isAdmin && (
-                  <button
-                    onClick={() => handleDelete(design.id)}
-                    className="absolute top-2 right-2 text-xs text-red-500 hover:underline"
-                  >
-                    Sil
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div>
         <h2 className="text-xl font-bold mb-3">🖼️ Tüm Tasarımlar</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -196,18 +170,21 @@ export default function DesignGallery() {
               />
               <div className="font-semibold">{design.title}</div>
               <div className="flex justify-between items-center mt-2">
-                <div className="text-sm">⭐ {design.rating}</div>
                 {user ? (
-                  hasVoted(design.id) ? (
-                    <span className="text-sm text-gray-400">Oy kullandın</span>
-                  ) : (
+                  <div className="flex gap-2">
                     <button
-                      onClick={() => handleVote(design.id)}
-                      className="text-blue-500 text-sm hover:underline"
+                      className={`text-sm px-2 py-1 rounded ${userVotes[design.id] === 'like' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                      onClick={() => handleVote(design.id, 'like')}
                     >
-                      Oyla
+                      👍 {design.likes || 0}
                     </button>
-                  )
+                    <button
+                      className={`text-sm px-2 py-1 rounded ${userVotes[design.id] === 'dislike' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
+                      onClick={() => handleVote(design.id, 'dislike')}
+                    >
+                      👎 {design.dislikes || 0}
+                    </button>
+                  </div>
                 ) : (
                   <span className="text-sm text-gray-400">Giriş yapmalısın</span>
                 )}
