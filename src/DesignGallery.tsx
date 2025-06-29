@@ -79,6 +79,7 @@ export default function DesignGallery() {
       ownerId: user.uid,
       ownerName: user.displayName || 'Anonim',
       ownerAvatar: user.photoURL || null,
+      ownerEmail: user.email || '',
       createdAt: Date.now(),
     });
     setTitle('');
@@ -195,6 +196,9 @@ export default function DesignGallery() {
                   <img src={design.ownerAvatar} className="w-5 h-5 rounded-full" />
                   <span>{design.ownerName}</span>
                 </div>
+              )}
+              {isAdmin && design.ownerEmail && (
+                <div className="text-xs text-gray-400 mt-1 italic">{design.ownerEmail}</div>
               )}
               {isAdmin && (
                 <button
