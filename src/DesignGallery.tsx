@@ -11,7 +11,9 @@ import {
   update,
 } from 'firebase/database';
 
-const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase());
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '')
+  .split(',')
+  .map((email) => email.trim().toLowerCase());
 
 export default function DesignGallery() {
   const { user } = useAuth();
@@ -30,10 +32,18 @@ export default function DesignGallery() {
       const data = snapshot.val();
       if (data) {
         const entries = Object.entries(data).map(([id, value]: any) => ({ id, ...value }));
-        setDesigns(entries.sort((a, b) => b.createdAt - a.createdAt));
+        setDesigns(
+          entries.sort((a, b) => {
+            if (isAdmin) {
+              return (b.likes || 0) - (a.likes || 0);
+            } else {
+              return b.createdAt - a.createdAt;
+            }
+          })
+        );
       }
     });
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!user) return;
@@ -115,7 +125,9 @@ export default function DesignGallery() {
     await remove(ref(db, `designs/${id}`));
   };
 
-  const top3 = [...designs].sort((a, b) => (b.likes || 0) - (a.likes || 0)).slice(0, 3);
+  const top3 = isAdmin
+    ? designs.slice(0, 3)
+    : [...designs].sort((a, b) => (b.likes || 0) - (a.likes || 0)).slice(0, 3);
 
   return (
     <div className="max-w-5xl mx-auto">
