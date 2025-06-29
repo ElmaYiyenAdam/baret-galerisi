@@ -11,7 +11,7 @@ import {
 } from 'firebase/database';
 
 const ADMIN_EMAIL = "saygincamsoy2005@hotmail.com";
-const IMGBB_API_KEY = "6fcfb13dfb45994a4cfadbed6e5f7c23"; // imgbb API key
+const IMGBB_API_KEY = "SENIN_IMGBB_API_KEY"; // imgbb API key
 
 export default function DesignGallery() {
   const { user } = useAuth();
@@ -176,13 +176,13 @@ export default function DesignGallery() {
                       className={`text-sm px-2 py-1 rounded ${userVotes[design.id] === 'like' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
                       onClick={() => handleVote(design.id, 'like')}
                     >
-                      👍 {design.likes || 0}
+                      👍 {isAdmin ? design.likes || 0 : ''}
                     </button>
                     <button
                       className={`text-sm px-2 py-1 rounded ${userVotes[design.id] === 'dislike' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
                       onClick={() => handleVote(design.id, 'dislike')}
                     >
-                      👎 {design.dislikes || 0}
+                      👎 {isAdmin ? design.dislikes || 0 : ''}
                     </button>
                   </div>
                 ) : (
