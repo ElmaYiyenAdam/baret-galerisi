@@ -1,137 +1,85 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useAuth } from './AuthContext';
 import { db } from './firebase';
 import {
-  collection,
-  addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  Timestamp,
-  where,
-  getDocs,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from 'firebase/firestore';
+  ref,
+  set,
+  onValue,
+  push,
+  get,
+  remove,
+  child,
+} from 'firebase/database';
 
 const ADMIN_EMAIL = "saygincamsoy2005@hotmail.com";
-const IMGBB_API_KEY = "6fcfb13dfb45994a4cfadbed6e5f7c23"; // 🔁 Buraya kendi API anahtarını yaz
-
-type HelmetDesign = {
-  id: string;
-  title: string;
-  imageUrl: string;
-  rating: number;
-  ownerId: string;
-  ownerName: string;
-  ownerAvatar: string | null;
-  createdAt: Timestamp;
-};
 
 export default function DesignGallery() {
-  const { user } = useAuth();
-  const [designs, setDesigns] = useState<HelmetDesign[]>([]);
+  const { user, login, logout } = useAuth();
+  const [designs, setDesigns] = useState<any[]>([]);
   const [title, setTitle] = useState('');
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState('');
   const [userVotes, setUserVotes] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
-
-  const designsRef = collection(db, 'designs');
-  const votesRef = collection(db, 'votes');
 
   const isAdmin = user?.email === ADMIN_EMAIL;
 
   useEffect(() => {
-    const q = query(designsRef, orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: HelmetDesign[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as HelmetDesign[];
-      setDesigns(list);
+    const designsRef = ref(db, 'designs');
+    onValue(designsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const entries = Object.entries(data).map(([id, value]: any) => ({ id, ...value }));
+        setDesigns(entries.sort((a, b) => b.createdAt - a.createdAt));
+      }
     });
-    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    const fetchVotes = async () => {
-      const q = query(votesRef, where('userId', '==', user.uid));
-      const snapshot = await getDocs(q);
-      const votedDesignIds = snapshot.docs.map((doc) => doc.data().designId);
-      setUserVotes(votedDesignIds);
-    };
-    fetchVotes();
+    const votesRef = ref(db, 'votes');
+    onValue(votesRef, (snapshot) => {
+      const data = snapshot.val();
+      const votedIds = Object.values(data || {}).filter((vote: any) => vote.userId === user.uid).map((v: any) => v.designId);
+      setUserVotes(votedIds);
+    });
   }, [user]);
 
   const hasVoted = (designId: string): boolean => {
     return userVotes.includes(designId);
   };
 
-  const uploadToImgbb = async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = (reader.result as string).split(',')[1];
-        const formData = new FormData();
-        formData.append('image', base64);
-
-        try {
-          const res = await axios.post(
-            `https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`,
-            formData
-          );
-          resolve(res.data.data.url);
-        } catch (err) {
-          reject(err);
-        }
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleAddDesign = async () => {
-    if (!title || !imageFile || !user) return;
-
-    setUploading(true);
-    try {
-      const imageUrl = await uploadToImgbb(imageFile);
-
-      const newDesign = {
-        title,
-        imageUrl,
-        rating: 0,
-        ownerId: user.uid,
-        ownerName: user.displayName || 'Anonim',
-        ownerAvatar: user.photoURL || null,
-        createdAt: Timestamp.now(),
-      };
-
-      await addDoc(designsRef, newDesign);
-      setTitle('');
-      setImageFile(null);
-    } catch (error) {
-      console.error("Görsel yükleme hatası:", error);
-      alert("Görsel yüklenemedi.");
-    }
-    setUploading(false);
+    if (!title || !imageUrl || !user) return;
+    const newRef = push(ref(db, 'designs'));
+    await set(newRef, {
+      title,
+      imageUrl,
+      rating: 0,
+      ownerId: user.uid,
+      ownerName: user.displayName || 'Anonim',
+      ownerAvatar: user.photoURL || null,
+      createdAt: Date.now(),
+    });
+    setTitle('');
+    setImageUrl('');
   };
 
   const handleVote = async (id: string) => {
     if (!user || hasVoted(id)) return;
 
-    await addDoc(votesRef, {
+    await set(ref(db, `votes/${user.uid}_${id}`), {
       userId: user.uid,
       designId: id,
-      votedAt: Timestamp.now(),
+      votedAt: Date.now(),
     });
 
-    const designDoc = doc(db, 'designs', id);
-    await updateDoc(designDoc, {
-      rating: (designs.find((d) => d.id === id)?.rating || 0) + 1,
+    const designRef = ref(db, `designs/${id}`);
+    const snapshot = await get(designRef);
+    const current = snapshot.val();
+    const currentRating = current?.rating || 0;
+
+    await set(designRef, {
+      ...current,
+      rating: currentRating + 1,
     });
 
     setUserVotes((prev) => [...prev, id]);
@@ -139,47 +87,46 @@ export default function DesignGallery() {
 
   const handleDelete = async (id: string) => {
     if (!isAdmin) return;
-    await deleteDoc(doc(db, 'designs', id));
+    await remove(ref(db, `designs/${id}`));
   };
 
   const top3 = [...designs].sort((a, b) => b.rating - a.rating).slice(0, 3);
 
   return (
     <div className="max-w-5xl mx-auto">
-      {user ? (
-        <div className="bg-white p-4 rounded shadow mb-8">
-          <h2 className="text-xl font-semibold mb-2">Yeni Baret Tasarımı Ekle</h2>
+      <div className="bg-white p-4 rounded shadow mb-8">
+        <h2 className="text-xl font-semibold mb-2">Yeni Tasarım Ekle</h2>
+        {user ? (
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               className="border p-2 rounded w-full"
-              placeholder="Baret Tasarımı Adı"
+              placeholder="Tasarım Başlığı"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <input
-              type="file"
-              accept="image/*"
               className="border p-2 rounded w-full"
-              onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+              placeholder="Görsel URL"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
             />
             <button
               className="bg-blue-500 text-white px-4 py-2 rounded"
               onClick={handleAddDesign}
-              disabled={uploading}
             >
-              {uploading ? 'Yükleniyor...' : 'Yükle'}
+              Yükle
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="text-center text-gray-500 italic mb-8">
-          Baret tasarımı yüklemek için giriş yapmalısınız.
-        </div>
-      )}
+        ) : (
+          <div className="text-center text-gray-500 italic">
+            Tasarım yüklemek için giriş yapmalısınız.
+          </div>
+        )}
+      </div>
 
       {top3.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xl font-bold mb-3">🏆 En İyi 3 Baret Tasarımı</h2>
+          <h2 className="text-xl font-bold mb-3">🏆 En İyi 3 Tasarım</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {top3.map((design) => (
               <div key={design.id} className="bg-white rounded shadow p-2 relative">
@@ -211,7 +158,7 @@ export default function DesignGallery() {
       )}
 
       <div>
-        <h2 className="text-xl font-bold mb-3">Tüm Baret Tasarımları</h2>
+        <h2 className="text-xl font-bold mb-3">🖼️ Tüm Tasarımlar</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {designs.map((design) => (
             <div key={design.id} className="bg-white rounded shadow p-2 relative">

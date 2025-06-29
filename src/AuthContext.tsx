@@ -1,29 +1,24 @@
 // src/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import {
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithPopup,
-  signOut,
-  User,
-} from 'firebase/auth';
-import { auth } from './firebase';
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { auth, provider } from "./firebase";
+import { onAuthStateChanged, signInWithPopup, signOut, User } from "firebase/auth";
 
+// Context tipi
 interface AuthContextType {
   user: User | null;
-  login: () => Promise<void>;
-  logout: () => Promise<void>;
+  login: () => void;
+  logout: () => void;
 }
 
+// Context nesnesi
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  login: async () => {},
-  logout: async () => {},
+  login: () => {},
+  logout: () => {},
 });
 
-export const useAuth = () => useContext(AuthContext);
-
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+// Provider bileşeni
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -33,13 +28,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+  const login = () => {
+    signInWithPopup(auth, provider).catch(console.error);
   };
 
-  const logout = async () => {
-    await signOut(auth);
+  const logout = () => {
+    signOut(auth);
   };
 
   return (
@@ -48,3 +42,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     </AuthContext.Provider>
   );
 };
+
+// Kullanılabilir hale getir
+export const useAuth = () => useContext(AuthContext);
