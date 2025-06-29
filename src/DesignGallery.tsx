@@ -10,9 +10,7 @@ import {
   remove,
 } from 'firebase/database';
 
-const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || "")
-  .split(",")
-  .map(email => email.trim().toLowerCase());
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase());
 
 export default function DesignGallery() {
   const { user } = useAuth();
@@ -21,8 +19,9 @@ export default function DesignGallery() {
   const [imageUrl, setImageUrl] = useState('');
   const [userVotes, setUserVotes] = useState<Record<string, 'like' | 'dislike'>>({});
   const [isUploading, setIsUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const isAdmin = ADMIN_EMAILS.includes((user?.email || "").toLowerCase());
+  const isAdmin = user && ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
 
   useEffect(() => {
     const designsRef = ref(db, 'designs');
@@ -167,7 +166,8 @@ export default function DesignGallery() {
               <img
                 src={design.imageUrl}
                 alt={design.title}
-                className="rounded mb-2 h-40 w-full object-cover"
+                className="rounded mb-2 h-40 w-full object-cover cursor-pointer"
+                onClick={() => setPreviewUrl(design.imageUrl)}
               />
               <div className="font-semibold">{design.title}</div>
               <div className="flex justify-between items-center mt-2">
@@ -208,6 +208,19 @@ export default function DesignGallery() {
           ))}
         </div>
       </div>
+
+      {previewUrl && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <img
+            src={previewUrl}
+            alt="Önizleme"
+            className="max-w-full max-h-full rounded shadow-lg"
+          />
+        </div>
+      )}
     </div>
   );
 }
