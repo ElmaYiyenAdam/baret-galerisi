@@ -11,13 +11,12 @@ import {
   update,
 } from 'firebase/database';
 
-const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '')
-  .split(',')
-  .map((email) => email.trim().toLowerCase());
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase());
 
 export default function DesignGallery() {
   const { user } = useAuth();
   const [designs, setDesigns] = useState<any[]>([]);
+  const [trash, setTrash] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [likedDesigns, setLikedDesigns] = useState<Set<string>>(new Set());
@@ -34,13 +33,13 @@ export default function DesignGallery() {
         const entries = Object.entries(data).map(([id, value]: any) => ({ id, ...value }));
         setDesigns(
           entries.sort((a, b) => {
-            if (isAdmin) {
-              return (b.likes || 0) - (a.likes || 0);
-            } else {
-              return b.createdAt - a.createdAt;
-            }
+            return isAdmin
+              ? (b.likes || 0) - (a.likes || 0)
+              : b.createdAt - a.createdAt;
           })
         );
+      } else {
+        setDesigns([]);
       }
     });
   }, [isAdmin]);
@@ -59,6 +58,20 @@ export default function DesignGallery() {
       setLikedDesigns(liked);
     });
   }, [user]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const trashRef = ref(db, 'trash');
+    onValue(trashRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const entries = Object.entries(data).map(([id, value]: any) => ({ id, ...value }));
+        setTrash(entries);
+      } else {
+        setTrash([]);
+      }
+    });
+  }, [isAdmin]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -122,12 +135,35 @@ export default function DesignGallery() {
 
   const handleDelete = async (id: string) => {
     if (!isAdmin) return;
-    await remove(ref(db, `designs/${id}`));
+    const confirmDelete = window.confirm("Bu tasarımı silmek istediğinizden emin misiniz?");
+    if (!confirmDelete) return;
+
+    const designRef = ref(db, `designs/${id}`);
+    const snapshot = await get(designRef);
+    const designData = snapshot.val();
+    if (!designData) return;
+
+    await set(ref(db, `trash/${id}`), designData);
+    await remove(designRef);
   };
 
-  const top3 = isAdmin
-    ? designs.slice(0, 3)
-    : [...designs].sort((a, b) => (b.likes || 0) - (a.likes || 0)).slice(0, 3);
+  const handleRestore = async (id: string) => {
+    const trashRef = ref(db, `trash/${id}`);
+    const snapshot = await get(trashRef);
+    const trashData = snapshot.val();
+    if (!trashData) return;
+
+    await set(ref(db, `designs/${id}`), trashData);
+    await remove(trashRef);
+  };
+
+  const handlePermanentDelete = async (id: string) => {
+    const confirm = window.confirm("Bu tasarımı kalıcı olarak silmek istediğinize emin misiniz?");
+    if (!confirm) return;
+    await remove(ref(db, `trash/${id}`));
+  };
+
+  const top3 = [...designs].sort((a, b) => (b.likes || 0) - (a.likes || 0)).slice(0, 3);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -207,6 +243,39 @@ export default function DesignGallery() {
           ))}
         </div>
       </div>
+
+      {isAdmin && trash.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-xl font-bold mb-3">🗑️ Çöp Kutusu</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {trash.map((item) => (
+              <div key={item.id} className="bg-gray-100 rounded shadow p-2 relative">
+                <img
+                  src={item.imageUrl}
+                  alt={item.title}
+                  className="rounded mb-2 h-40 w-full object-cover"
+                />
+                <div className="font-semibold">{item.title}</div>
+                <div className="text-xs text-gray-500 italic mb-2">{item.ownerEmail}</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleRestore(item.id)}
+                    className="text-sm bg-green-500 text-white px-2 py-1 rounded"
+                  >
+                    Geri Yükle
+                  </button>
+                  <button
+                    onClick={() => handlePermanentDelete(item.id)}
+                    className="text-sm bg-red-500 text-white px-2 py-1 rounded"
+                  >
+                    Kalıcı Sil
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {previewUrl && (
         <div
